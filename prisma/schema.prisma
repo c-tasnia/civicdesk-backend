@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  CITIZEN
+  STAFF
+  ADMIN
+}
+
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+}
+
+enum ComplaintStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  REJECTED
+  CLOSED
+}
+
+enum ComplaintPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ServiceRequestStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  INITIATED
+  SUCCESS
+  FAILED
+  CANCELLED
+}
+
+enum NotificationType {
+  COMPLAINT_UPDATE
+  SERVICE_REQUEST_UPDATE
+  PAYMENT
+  SYSTEM
+}
+
+model User {
+  id           String       @id @default(uuid())
+  name         String
+  email        String       @unique
+  password     String?
+  phone        String?
+  avatarUrl    String?
+  role         Role         @default(CITIZEN)
+  provider     AuthProvider @default(LOCAL)
+  providerId   String?
+  isVerified   Boolean      @default(false)
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  deletedAt    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  complaintsFiled    Complaint[]        @relation("ComplaintsFiled")
+  complaintsAssigned Complaint[]        @relation("ComplaintsAssigned")
+  complaintActivity  ComplaintActivity[]
+  serviceRequests    ServiceRequest[]
+  payments           Payment[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  refreshTokens      RefreshToken[]
+
+  @@index([role])
+  @@index([departmentId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Department {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  description String?
+  deletedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  staff           User[]
+  complaints      Complaint[]
+  serviceTypes    ServiceType[]
+  serviceRequests ServiceRequest[]
+}
+
+model Complaint {
+  id             String            @id @default(uuid())
+  citizenId      String
+  citizen        User              @relation("ComplaintsFiled", fields: [citizenId], references: [id])
+  departmentId   String
+  department     Department        @relation(fields: [departmentId], references: [id])
+  assignedStaffId String?
+  assignedStaff  User?             @relation("ComplaintsAssigned", fields: [assignedStaffId], references: [id])
+  category       String
+  title          String
+  description    String
+  location       String
+  latitude       Float?
+  longitude      Float?
+  priority       ComplaintPriority @default(MEDIUM)
+  status         ComplaintStatus   @default(PENDING)
+  deletedAt      DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  attachments ComplaintAttachment[]
+  activity    ComplaintActivity[]
+
+  @@index([status])
+  @@index([departmentId])
+  @@index([citizenId])
+  @@index([priority])
+}
+
+model ComplaintAttachment {
+  id          String    @id @default(uuid())
+  complaintId String
+  complaint   Complaint @relation(fields: [complaintId], references: [id])
+  url         String
+  publicId    String
+  createdAt   DateTime  @default(now())
+}
+
+model ComplaintActivity {
+  id          String           @id @default(uuid())
+  complaintId String
+  complaint   Complaint        @relation(fields: [complaintId], references: [id])
+  actorId     String
+  actor       User             @relation(fields: [actorId], references: [id])
+  fromStatus  ComplaintStatus?
+  toStatus    ComplaintStatus
+  note        String?
+  createdAt   DateTime         @default(now())
+
+  @@index([complaintId])
+}
+
+model ServiceType {
+  id           String     @id @default(uuid())
+  name         String
+  description  String?
+  fee          Decimal    @db.Decimal(10, 2)
+  departmentId String
+  department   Department @relation(fields: [departmentId], references: [id])
+  deletedAt    DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  serviceRequests ServiceRequest[]
+
+  @@index([departmentId])
+}
+
+model ServiceRequest {
+  id            String                @id @default(uuid())
+  citizenId     String
+  citizen       User                  @relation(fields: [citizenId], references: [id])
+  serviceTypeId String
+  serviceType   ServiceType           @relation(fields: [serviceTypeId], references: [id])
+  departmentId  String
+  department    Department            @relation(fields: [departmentId], references: [id])
+  status        ServiceRequestStatus  @default(PENDING_PAYMENT)
+  note          String?
+  deletedAt     DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  payments Payment[]
+
+  @@index([status])
+  @@index([citizenId])
+}
+
+model Payment {
+  id               String         @id @default(uuid())
+  serviceRequestId String
+  serviceRequest   ServiceRequest @relation(fields: [serviceRequestId], references: [id])
+  userId           String
+  user             User           @relation(fields: [userId], references: [id])
+  amount           Decimal        @db.Decimal(10, 2)
+  currency         String         @default("BDT")
+  provider         String         @default("SSLCOMMERZ")
+  transactionId    String         @unique
+  status           PaymentStatus  @default(INITIATED)
+  gatewayResponse  Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([status])
+  @@index([userId])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
