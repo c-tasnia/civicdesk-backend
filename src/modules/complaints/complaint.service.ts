@@ -101,18 +101,31 @@ export const searchComplaints = async (actor: AuthPayload, keyword: string) => {
 };
 
 export const getComplaintById = async (id: string, actor: AuthPayload) => {
-  const complaint = await prisma.complaint.findFirst({ /* ... */ });
+  const complaint = await prisma.complaint.findFirst({
+    where: { id, deletedAt: null },
+    include: {
+      department: true,
+      citizen: { select: { id: true, name: true, email: true } },
+      assignedStaff: { select: { id: true, name: true } },
+      attachments: true,
+      activity: { orderBy: { createdAt: "asc" }, include: { actor: { select: { name: true, role: true } } } },
+    },
+  });
   if (!complaint) throw new AppError("Complaint not found", 404);
 
   if (actor.role === "CITIZEN" && complaint.citizenId !== actor.id) {
     throw new AppError("You do not have access to this complaint", 403);
   }
-  if (actor.role === "STAFF" && complaint.departmentId !== /* staff's own departmentId */) {
-    throw new AppError("You do not have access to this complaint", 403);
+
+  if (actor.role === "STAFF") {
+    const staff = await prisma.user.findUnique({ where: { id: actor.id } });
+    if (staff?.departmentId !== complaint.departmentId) {
+      throw new AppError("You do not have access to this complaint", 403);
+    }
   }
+
   return complaint;
 };
-
 export const assignComplaint = async (complaintId: string, staffId: string, actorId: string) => {
   return prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const complaint = await tx.complaint.findFirst({ where: { id: complaintId, deletedAt: null } });
